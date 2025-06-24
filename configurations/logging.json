@@ -1,0 +1,54 @@
+{
+    "version": 1,
+    "disable_existing_loggers": false,
+    "formatters": {
+        "default": {
+            "format": "'%#LOG_FORMAT#%'",
+            "datefmt": "'%#PRECISE_DATE_FORMAT#%'"
+        }
+    },
+    "filters": {
+        "info_filter": {
+            "()": "pg2pq.utilities.common.InfoFilter",
+            "name": ""
+        },
+        "error_filter": {
+            "()": "pg2pq.utilities.common.ErrorFilter",
+            "name": ""
+        }
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "default",
+            "level": "DEBUG",
+            "stream": "ext://sys.stdout"
+        },
+        "info_file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "formatter": "default",
+            "level": "DEBUG",
+            "filename": "'%#ROOT_DIRECTORY#%'/info.log",
+            "maxBytes": 15728640,
+            "backupCount": 3,
+            "encoding": "utf-8",
+            "filters": ["info_filter"]
+        },
+        "error_file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "formatter": "default",
+            "level": "ERROR",
+            "filename": "'%#ROOT_DIRECTORY#%'/error.log",
+            "maxBytes": 15728640,
+            "backupCount": 3,
+            "encoding": "utf-8",
+            "filters": ["error_filter"]
+        }
+    },
+    "loggers": {
+        "": {
+            "level": "INFO",
+            "handlers": ["console", "info_file", "error_file"]
+        }
+    }
+}
