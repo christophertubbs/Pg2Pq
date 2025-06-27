@@ -195,3 +195,6 @@ cython_debug/
 
 # Generated Parquet Files
 *.parquet
+
+# Background work artifacts
+nohup.out

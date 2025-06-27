@@ -10,11 +10,13 @@ import argparse
 from pg2pq.command_arguments import register_argument
 from pg2pq.command_arguments import BaseArguments
 from pg2pq.command_arguments import GenerateEnvironmentArgs
+from pg2pq.command_arguments import MergeArgs
 from pg2pq.command_arguments import DatabaseDumpArguments
 from pg2pq.command_arguments import ArgumentType
 
 @register_argument(DatabaseDumpArguments)
 @register_argument(GenerateEnvironmentArgs)
+@register_argument(MergeArgs)
 class ApplicationArguments:
     """
     Provides a parser for all commands that may be performed via a CLI

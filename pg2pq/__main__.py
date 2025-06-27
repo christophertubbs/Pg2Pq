@@ -6,7 +6,6 @@ from __future__ import annotations
 import typing
 import logging
 import sys
-import os
 
 from pg2pq.utilities import common
 
@@ -37,6 +36,7 @@ def dump_database_table(arguments: DatabaseDumpArguments):
         table_name=arguments.table_name,
         output_path=arguments.output_path,
         buffer_size=arguments.buffer_size,
+        conflict_resolution=arguments.conflict_resolution,
     )
 
 

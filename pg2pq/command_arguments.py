@@ -165,7 +165,7 @@ class BaseArguments:
             supports_multiple_values: bool = issubclass(
                 typing.get_origin(argument_args.get("type")) or type(None),
                 typing.Iterable
-            ) or field_metadata.get("is_list", False)
+            ) or field_metadata.get("is_list", False) or field_metadata.get("nargs", None) in ("+", "*")
 
             if default_value == dataclasses.MISSING:
                 if supports_multiple_values:
@@ -355,7 +355,8 @@ class DatabaseDumpArguments(ArgumentsForDatabase):
                 "--on-conflict"
             ],
             "type": ConflictResolution,
-            "description": "What to do if there is preexisting data"
+            "description": "What to do if there is preexisting data",
+            "choices": [member.value for member in ConflictResolution]
         }
     )
 
@@ -377,6 +378,58 @@ class GenerateEnvironmentArgs(BaseArguments):
                 "-o",
                 "--output-path"
             ]
+        }
+    )
+
+
+@dataclasses.dataclass
+class MergeArgs(BaseArguments):
+    """
+    Merge parquet files
+    """
+    @classmethod
+    def get_command(cls) -> str:
+        return "merge"
+
+    output_path: pathlib.Path = dataclasses.field(
+        metadata={
+            "type": pathlib.Path,
+            "description": "Where to save the generated data"
+        }
+    )
+
+    input_files: typing.List[pathlib.Path] = dataclasses.field(
+        metadata={
+            "type": pathlib.Path,
+            "nargs": "+",
+            "description": "The files to include"
+        }
+    )
+
+    compression_algorithm: str = dataclasses.field(
+        default="zstd",
+        metadata={
+            "type": str,
+            "description": "The compression algorithm to use when saving data",
+        }
+    )
+
+    compression_level: int = dataclasses.field(
+        default=5,
+        metadata={
+            "type": int,
+            "description": (
+                "How compressed the output should be - the higher the number, the more compressed with reduced "
+                "returns after ~10"
+            )
+        }
+    )
+
+    enforce_unique: bool = dataclasses.field(
+        default=False,
+        metadata={
+            "action": "store_true",
+            "description": "Ensure that all combined rows are unique"
         }
     )
 

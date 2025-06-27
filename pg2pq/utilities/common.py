@@ -7,6 +7,7 @@ import logging.config
 import re
 import pathlib
 
+
 class InfoFilter(logging.Filter):
     def filter(self, record):
         return record.levelno < logging.ERROR
@@ -14,6 +15,7 @@ class InfoFilter(logging.Filter):
 class ErrorFilter(logging.Filter):
     def filter(self, record):
         return record.levelno >= logging.ERROR
+            
 
 
 def create_exception_group(
