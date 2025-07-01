@@ -3,7 +3,8 @@
     "disable_existing_loggers": false,
     "formatters": {
         "default": {
-            "format": "'%#LOG_FORMAT#%'",
+            "()": "pg2pq.utilities.common.TimeZoneFormatter",
+            "fmt": "'%#LOG_FORMAT#%'",
             "datefmt": "'%#PRECISE_DATE_FORMAT#%'"
         }
     },

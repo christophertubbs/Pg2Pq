@@ -4,7 +4,6 @@ Objects and functions used to dump a Postgresql table into a parquet file
 import os
 import queue
 import threading
-import time
 import typing
 import pathlib
 import logging
@@ -18,11 +17,10 @@ from queue import Queue
 import psycopg
 import sqlalchemy
 import pyarrow
-import polars
 
 import pyarrow.parquet
 
-from psycopg.sql import Composed as ComposedQuery
+from psycopg.sql import Composed as PostgresQuery
 
 from pg2pq.models import DatabaseSpecification
 from pg2pq.utilities import settings, ConflictResolution
@@ -33,9 +31,13 @@ from pg2pq.utilities.constants import APPLICATION_NAME
 LOGGER: logging.Logger = logging.getLogger(pathlib.Path(__file__).stem)
 
 WRITERS: weakref.WeakValueDictionary[pathlib.Path, pyarrow.parquet.ParquetWriter] = weakref.WeakValueDictionary()
+"""A mapping of open parquet writers. A reference from this dictionary won't keep the writer open and in memory"""
 NOTIFICATION_FREQUENCY: int = 150
+"""The number of queries to buffer in before sending some sort of notification to the user and logs"""
 MAXIMUM_EXECUTION_ATTEMPTS: int = 5
+"""The maximum number of attempts that something has before we really consider it a failure"""
 COMPRESSION_ALGORITHM: str = "zstd"
+"""The default algorithm to use when compressing parquet data"""
 COMPRESSION_LEVEL: int = 5
 """
 How compressed the data should be. The count generally goes up to around 22, starts at 0, but starts at 1 for zstd.
@@ -46,6 +48,11 @@ The higher the value, the longer it will take to write, BUT the smaller the file
 """
 
 def close_writers(signum = None, frame = None):
+    """
+    Close any writers that have been recorded and are open
+    :param signum:
+    :param frame:
+    """
     for path, writer in WRITERS.items():
         if isinstance(writer, pyarrow.parquet.ParquetWriter) and writer.is_open:
             try:
@@ -65,6 +72,18 @@ def get_parquet_writer(
     compression_algorithm: str = COMPRESSION_ALGORITHM,
     compression_level: int = COMPRESSION_LEVEL
 ) -> pyarrow.parquet.ParquetWriter:
+    """
+    Get a writer for a parquet file.
+
+    This ensures that parquet writers are properly closed
+
+    :param target: The parquet file to open
+    :param schema: How to treat each column
+    :param compression_algorithm: How to compress the data
+    :param compression_level: To what degree to compress the data
+    :return: A writer that will apply parquet data to disk
+    """
+    # Properly close a previously existing writer if it is found
     if target in WRITERS:
         previous_writer: pyarrow.parquet.ParquetWriter = WRITERS.pop(target)
         if previous_writer.is_open:
@@ -75,6 +94,7 @@ def get_parquet_writer(
                     f"Tried to close a writer that was previously writing to {target} but could not",
                     exc_info=True
                 )
+
     writer: pyarrow.parquet.ParquetWriter = pyarrow.parquet.ParquetWriter(
         where=target,
         schema=schema,
@@ -198,17 +218,26 @@ def log_schema(schema: pyarrow.Schema):
     )
 
 
-def form_query(
+def form_data_retrieval_query(
     schema_name: str,
     table_name: str,
     longest_key: typing.Optional[typing.Sequence[str]],
     preexisting_values: typing.Optional[typing.Mapping[str, typing.Any]]
-) -> ComposedQuery:
+) -> PostgresQuery:
+    """
+    Create a specially formatted postgresql query that will retrieve data from the database
+
+    :param schema_name: The name of the schema that the table of interest exists in
+    :param table_name: The name of the table to query
+    :param longest_key: The longest key to use for ordering
+    :param preexisting_values: A mapping of the largest values for the key in preexisting data
+    :return: A query that may be called to retrieve data
+    """
     from psycopg import sql
-    query: ComposedQuery = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema_name, table_name))
+    query: PostgresQuery = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema_name, table_name))
 
     if preexisting_values:
-        where_clause: ComposedQuery = sql.SQL(" WHERE ({}) > ({})").format(
+        where_clause: PostgresQuery = sql.SQL(" WHERE ({}) > ({})").format(
             sql.SQL(", ").join(sql.Identifier(key) for key in preexisting_values),
             sql.SQL(", ").join(sql.Placeholder(key) for key in preexisting_values)
         )
@@ -219,7 +248,7 @@ def form_query(
         )
 
     if longest_key:
-        order_clause: ComposedQuery = sql.SQL(" ORDER BY ") + sql.SQL(", ").join(sql.Identifier(key) for key in longest_key)
+        order_clause: PostgresQuery = sql.SQL(" ORDER BY ") + sql.SQL(", ").join(sql.Identifier(key) for key in longest_key)
         query = query + order_clause
 
     return query
@@ -233,12 +262,26 @@ def stream_batches(
     longest_key: typing.Sequence[str] = None,
     previous_values: typing.Dict[str, typing.Any] = None,
 ) -> typing.Generator[typing.Sequence[typing.Dict[str, typing.Any]], None, None]:
+    """
+    Create a generator that will pull in a limited amount of data from a postres table
+
+    :param connection: An open connection to a postgres database
+    :param schema_name: The schema that contains the table of itnerest
+    :param table_name: The name of the table to dump
+    :param buffer_size: The number of rows to load into memory at once
+    :param max_execution_attempts: The maximum number of times to attempt the query before outright failing
+    :param longest_key: Columns names to use for tests against uniqueness
+    :param previous_values: A mapping for the last encountered values for each key if there is preexisting data
+    :return: A generator that streams batchs of rows of data
+    """
     if previous_values is None:
         previous_values = {}
 
     cursor_name: str = f"{APPLICATION_NAME}_{schema_name}.{table_name}_{get_random_identifier(4)}"
+    """A unique name for the cursor - helps prevent clashing server side operations"""
+
     with connection.cursor(name=cursor_name) as cursor:
-        query: ComposedQuery = form_query(
+        query: PostgresQuery = form_data_retrieval_query(
             schema_name=schema_name,
             table_name=table_name,
             longest_key=longest_key,
@@ -270,6 +313,8 @@ def stream_batches(
         LOGGER.info(f"{len(batch):,} rows fetched in the first retrieval")
 
         while batch:
+            # Yield 'returns' the batch when `next` is called. When `next` is called again, the function goes to the
+            # end of the while block and 'returns' the next batch
             yield batch
             batch: typing.Sequence[typing.Dict[str, typing.Any]] = cursor.fetchmany(buffer_size)
 
@@ -318,36 +363,44 @@ def get_most_recent_data(
     path: pathlib.Path,
     keys: typing.Optional[typing.Sequence[str]]
 ) -> typing.Optional[typing.Dict[str, typing.Any]]:
+    """
+    Get the most recent data that was saved to disk based on a series of keys. No preexisting values are reported if
+    there aren't any keys to respect.
+
+    :param path: The path to preexisting data
+    :param keys: A list of the columns to use as indicators for preexisting data. Order matters -
+    ('day_nu', 'location_id', 'month_nu') can yield WILDLY different results than ('location_id', 'month_nu', 'day_nu')
+    :return: The most recent values for the keys in the order given
+    """
     if not path.exists():
         return None
     if not keys:
         return None
 
-    data: polars.LazyFrame = polars.scan_parquet(source=path)
+    import duckdb
+
+    query: str = f"""SELECT {', '.join(keys)}
+FROM read_parquet('{str(path)}')
+ORDER BY {', '.join(keys)}
+LIMIT 1"""
 
     try:
-        frame_of_last_row: polars.DataFrame = data.select(keys).tail(1).collect()
-    except polars.exceptions.ComputeError as error:
-        if "File out of specification" in str(error):
-            alternative_path: pathlib.Path = path.parent / f"{path.name}.checkpoint"
-            if alternative_path.is_file():
-                try:
-                    return get_most_recent_data(alternative_path, keys=keys)
-                except:
-                    pass
-            alternative_path = path.parent / f"{path.stem}.checkpoint.parquet"
-            if alternative_path.is_file():
-                try:
-                    return get_most_recent_data(alternative_path, keys=keys)
-                except:
-                    pass
-            raise Exception(f"The data in {path} is corrupted - it cannot be worked with. Remove it and try again.")
-        raise error
+        query_result: duckdb.DuckDBPyRelation = duckdb.sql(query)
+    except duckdb.InvalidInputException as e:
+        if 'magic bytes' in str(e).lower():
+            checkpoint_path = path.parent / f"{path.stem}.checkpoint.parquet"
 
-    last_rows: typing.Sequence[typing.Dict[str, typing.Any]] = frame_of_last_row.to_dicts()
+            query: str = f"""SELECT {', '.join(keys)}
+        FROM read_parquet('{str(checkpoint_path)}')
+        ORDER BY {', '.join(keys)}
+        LIMIT 1"""
+            query_result = duckdb.sql(query)
+        else:
+            raise
+    records: typing.Sequence[typing.Dict[str, typing.Any]] = query_result.to_df().to_dict(orient="records")
 
-    if last_rows:
-        return last_rows[0]
+    if records:
+        return records[-1]
 
     return None
 
@@ -361,6 +414,18 @@ def merge_checkpoints(
     timeout: int = 2,
     backoff: int = 2
 ) -> None:
+    """
+    Merge checkpoint files
+
+    :param main_path: The path to the primary checkpoint file
+    :param checkpoint_queue: A queue that indicates files that need to be merged
+    :param may_continue: An event that states that this function may continue polling if set
+    :param compression_algorithm: How to compress the merged data
+    :param compression_level: To what degree to compress the data
+    :param timeout: The number of seconds to wait for a new file to merge before timing out. Setting the value too
+    high will keep the application from exiting in a timely fashion.
+    :param backoff: The amount of time to wait if an error was encountered before trying again
+    """
     from time import sleep
 
     if main_path.is_dir():
@@ -388,6 +453,9 @@ def merge_checkpoints(
                 f"Found {len(similar_paths)} files that look ready to merge. "
                 f"Merging those before listening for new data to merge"
             )
+            if len(similar_paths) == 1:
+                similar_paths = [main_path, similar_paths[0]]
+
             try:
                 merge_parquet(
                     files_to_merge=similar_paths,
@@ -603,10 +671,63 @@ def dump_table(
     post_process_dumped_data(working_path=working_path, final_destination=output_path, keys=keys)
     LOGGER.info(f"Data from {specification}:{schema_name}.{table_name} written to {output_path}")
 
+
+def ensure_data_is_unique(
+    path: pathlib.Path,
+    keys: typing.Sequence[typing.Sequence[str]],
+    compression_algorithm: str = COMPRESSION_ALGORITHM,
+    compression_level: int = COMPRESSION_LEVEL,
+) -> None:
+    """
+    Ensure that the data at the given path is unique to the given keys
+    :param path: The path to the data to enforce uniqueness on
+    :param keys: A series of keys that help indicate unique patterns within the data
+    :param compression_algorithm: The compression algorithm to use
+    :param compression_level: To what degree to compress the data. The higher the value, the more compressed the data is
+    """
+    import duckdb
+    parquet_options: str = ', '.join([
+        "FORMAT PARQUET",
+        "OVERWRITE TRUE",
+        "USE_TMP_FILE TRUE",
+        f"COMPRESSION {compression_algorithm.upper()}",
+        f"COMPRESSION_LEVEL {compression_level}",
+    ])
+    for key_set in keys:
+        query: str = f"""COPY (
+    SELECT * FROM (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY {', '.join(key_set)}) AS ROW_NUM
+        FROM read_parquet('{str(path)}')
+    ) AS UNIQUE_DATA
+    WHERE ROW_NUM = 1
+    ORDER BY {', '.join(key_set)}
+) TO '{path}' ({parquet_options});"""
+        duckdb.sql(query)
+
+
+def combine_checkpoints(
+    working_path: pathlib.Path,
+    compression_algorithm: str = COMPRESSION_ALGORITHM,
+    compression_level: int = COMPRESSION_LEVEL,
+):
+    checkpoint_glob: str = str(working_path.parent / f"{working_path.stem}.checkpoint*")
+    copy_options: str = ', '.join([
+        "FORMAT PARQUET",
+        "OVERWRITE TRUE",
+        "USE_TMP_FILE TRUE",
+        f"COMPRESSION {compression_algorithm.upper()}",
+        f"COMPRESSION_LEVEL {compression_level}",
+    ])
+    query: str = f"""COPY (
+    SELECT * FROM read_parquet('{checkpoint_glob}')    
+) TO '{working_path}' ({copy_options});"""
+
 def post_process_dumped_data(
     working_path: pathlib.Path,
     final_destination: pathlib.Path,
-    keys: typing.Sequence[typing.Sequence[str]] = None
+    keys: typing.Sequence[typing.Sequence[str]] = None,
+    compression_algorithm: str = COMPRESSION_ALGORITHM,
+    compression_level: int = COMPRESSION_LEVEL,
 ) -> None:
     """
     Perform post-processing tasks like deduplication
@@ -614,47 +735,28 @@ def post_process_dumped_data(
     :param working_path:
     :param final_destination:
     :param keys: Keys to deduplicate
+    :param compression_algorithm:
+    :param compression_level:
     """
-    if keys is None:
-        keys = []
+    if isinstance(keys, typing.Iterable):
+        ensure_data_is_unique(
+            path=working_path,
+            keys=keys,
+            compression_algorithm=compression_algorithm,
+            compression_level=compression_level,
+        )
+
+    combine_checkpoints(
+        working_path=working_path,
+        compression_algorithm=compression_algorithm,
+        compression_level=compression_level,
+    )
+
+    import shutil
+    shutil.move(working_path, final_destination)
 
     general_data_glob: str = str(working_path.parent / f"{working_path.stem}*")
-    # Don't fully open the data - just open it enough to perform operations as needed
-    working_data: polars.LazyFrame = polars.scan_parquet(source=general_data_glob)
 
-    # Enforce every set of keys. There should only ever be one unique key or a unique key and primary key,
-    # but we perform this in a loop to protect ourselves from infrequent design decisions or philosophies
-    for key_set in keys:
-        # Skip any set of keys that somehow don't have keys
-        if not key_set:
-            LOGGER.warning(f"Received an empty key set when trying to reduce duplicate data for {working_path}")
-            continue
-
-        missing_keys: typing.Sequence[str] = list(filter(lambda key: key not in working_data.columns, key_set))
-
-        # If columns are missing, inform the user, but this may just be some sort of bizarre fluke.
-        # Don't disrupt a long running operation that may be applied correctly later
-        if missing_keys:
-            LOGGER.warning(
-                f"Cannot apply the unique key of ({', '.join(key_set)}) - "
-                f"the following keys are missing: {missing_keys}.{os.linesep}"
-                f"Available keys are: ({', '.join(working_data.columns)}){os.linesep}"
-                f"Unique key will not be applied."
-            )
-            continue
-
-        working_data = working_data.unique(subset=key_set, keep="first")
-
-    LOGGER.info(
-        f"Writing data from {working_path} to {final_destination}. "
-        f"Compression is set to {COMPRESSION_LEVEL}, which may affect the operation time."
-    )
-    # Lazily save the data into the intended location
-    working_data.sink_parquet(
-        path=final_destination,
-        compression=COMPRESSION_ALGORITHM,
-        compression_level=COMPRESSION_LEVEL,
-    )
     LOGGER.info(f"The final output has been written to {final_destination}")
 
     # Clean up the working data if it isn't the expected end product

@@ -6,6 +6,11 @@ import logging
 import logging.config
 import re
 import pathlib
+import zoneinfo
+
+from datetime import datetime
+
+from pg2pq.utilities import constants
 
 
 class InfoFilter(logging.Filter):
@@ -15,7 +20,30 @@ class InfoFilter(logging.Filter):
 class ErrorFilter(logging.Filter):
     def filter(self, record):
         return record.levelno >= logging.ERROR
-            
+
+class TimeZoneFormatter(logging.Formatter):
+    """
+    A log formatter that outputs log times in whatever timezone has been configured
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from pg2pq.utilities import settings
+        self.timezone: zoneinfo.ZoneInfo = zoneinfo.ZoneInfo(settings.timezone)
+        settings.add_setting_handler(
+            "timezone",
+            self.set_timezone
+        )
+
+    def set_timezone(self, timezone_name: str) -> None:
+        self.timezone = zoneinfo.ZoneInfo(timezone_name)
+
+    def formatTime(self, record: logging.LogRecord, datefmt: str = None):
+        converted_datetime: datetime = datetime.fromtimestamp(record.created, tz=self.timezone)
+
+        if datefmt:
+            return converted_datetime.strftime(datefmt)
+
+        return converted_datetime.strftime(constants.DATE_FORMAT)
 
 
 def create_exception_group(

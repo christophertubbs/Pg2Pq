@@ -49,6 +49,7 @@ class BaseArguments:
         )
         for field_with_fallback in fields_with_fallbacks:
             field_value = getattr(self, field_with_fallback.name, constants.SENTINEL)
+            fallback = field_with_fallback.metadata['fallback_default']
 
             if field_value == constants.SENTINEL:
                 raise KeyError(
@@ -57,13 +58,17 @@ class BaseArguments:
 
             unset_value = field_with_fallback.metadata.get("unset_value", None)
             if field_value == unset_value:
-                setattr(self, field_with_fallback.name, field_with_fallback.metadata['fallback_default'])
+                if callable(fallback):
+                    setattr(self, field_with_fallback.name, fallback())
+                else:
+                    setattr(self, field_with_fallback.name, fallback)
 
         if self.debug:
             logging.warning(
                 "Running in debug mode - important information may get leaked into logs. "
                 "Disable immediately if not intended."
             )
+            logging.getLogger().setLevel(logging.DEBUG)
             settings.debug = True
 
     @classmethod
@@ -204,7 +209,7 @@ class ArgumentsForDatabase(BaseArguments):
     A base class that defines parameters required for database access
     """
     database_host: typing.Optional[str] = dataclasses.field(
-        default=settings.default_database_host,
+        default_factory=lambda: settings.default_database_host,
         metadata={
             "flags": [
                 "--database-host"
@@ -215,7 +220,7 @@ class ArgumentsForDatabase(BaseArguments):
     )
     """The location of the database. Access this information through the attached `database_specification` instead."""
     database_port: typing.Optional[int] = dataclasses.field(
-        default=settings.default_database_port,
+        default_factory=lambda: settings.default_database_port,
         metadata={
             "flags": [
                 "--database-port"
@@ -229,7 +234,7 @@ class ArgumentsForDatabase(BaseArguments):
     Access this information through the attached `database_specification` instead.
     """
     database_name: typing.Optional[str] = dataclasses.field(
-        default=settings.default_database_name,
+        default_factory=lambda: settings.default_database_name,
         metadata={
             "flags": [
                 "--database-name"
@@ -243,7 +248,7 @@ class ArgumentsForDatabase(BaseArguments):
     Access this information through the attached `database_specification` instead.
     """
     database_user: str = dataclasses.field(
-        default=settings.default_database_user,
+        default_factory=lambda: settings.default_database_user,
         metadata={
             "flags": [
                 "--database-user"
@@ -257,7 +262,7 @@ class ArgumentsForDatabase(BaseArguments):
     Access this information through the attached `database_specification` instead.
     """
     database_driver: str = dataclasses.field(
-        default=settings.default_database_driver,
+        default_factory=lambda: settings.default_database_driver,
         metadata={
             "flags": [
                 "--database-driver"
@@ -279,7 +284,7 @@ class ArgumentsForDatabase(BaseArguments):
             "description": "The password used to enter the database",
             "optional": True,
             "type": str,
-            "fallback_default": settings.default_database_password
+            "fallback_default": lambda: settings.default_database_password
         }
     )
     """
@@ -428,12 +433,79 @@ class MergeArgs(BaseArguments):
     enforce_unique: bool = dataclasses.field(
         default=False,
         metadata={
+            "flags": [
+                "-u",
+                "--enforce-unique",
+            ],
             "action": "store_true",
             "description": "Ensure that all combined rows are unique"
         }
     )
 
+    keys: typing.List[str] = dataclasses.field(
+        default_factory=list,
+        metadata={
+            "flags": [
+                "-k",
+                "--keys",
+            ],
+            "description": (
+                "Keys to partition on while enforcing unique keys. "
+                "Failure to provide this will result is a massive memory spike"
+            ),
+            "nargs": "*"
+        }
+    )
 
+
+try:
+    import xarray
+
+    @dataclasses.dataclass
+    class ToNetcdfArgs(BaseArguments):
+        """
+        Arguments that instruct the system to convert parquet data into netcdf
+        """
+        @classmethod
+        def get_command(cls) -> str:
+            return "to-netcdf"
+
+        dimensions: typing.List[str] = dataclasses.field(
+            metadata={
+                "nargs": "+",
+                "type": str,
+                "description": "What columns to use as dimensions"
+            }
+        )
+
+        target_parquet: pathlib.Path = dataclasses.field(
+            metadata={
+                "type": pathlib.Path,
+                "description": "The path to the parquet file to convert"
+            }
+        )
+
+        output_path: pathlib.Path = dataclasses.field(
+            metadata={
+                "type": pathlib.Path,
+                "description": "Where to save the resultant netcdf data"
+            }
+        )
+
+        exclude: typing.List[str] = dataclasses.field(
+            default_factory=list,
+            metadata={
+                "flags": [
+                    "-e",
+                    "--exclude"
+                ],
+                "type": str,
+                "nargs": "*",
+                "description": "Columns to ignore when converting to netcdf"
+            }
+        )
+except ImportError:
+    xarray = {}
 
 def register_argument(argument_class: typing.Type[BaseArguments], command: typing.Optional[str] = None):
     """

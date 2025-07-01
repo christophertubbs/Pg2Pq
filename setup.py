@@ -19,8 +19,13 @@ setup(
         "psycopg",
         "sqlalchemy",
         "dotenv",
-        "asyncpg"
+        "asyncpg",
+        "duckdb",
+        "tzlocal"
     ],
+    extras_require={
+        "netcdf": ["netCDF4", "xarray"],
+    },
     python_requires=">=3.11",
     entry_points={
         "console_scripts": [

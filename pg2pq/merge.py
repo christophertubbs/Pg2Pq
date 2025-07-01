@@ -3,9 +3,12 @@
 Functions and objects used to merge parquet files
 """
 import argparse
+import os
 import typing
 import logging
 import pathlib
+
+from pg2pq.exceptions import NothingToMergeException
 
 
 LOGGER: logging.Logger = logging.getLogger(pathlib.Path(__file__).stem)
@@ -49,7 +52,8 @@ def merge_parquet(
     enforce_unique: bool,
     target_path: pathlib.Path,
     compression_algorithm: str = "zstd",
-    compression_level: int = 5
+    compression_level: int = 5,
+    keys: typing.Sequence[str] = None
 ) -> None:
     """
     Combine all the paths in files_to_merge into a single file at the target path. One or more of the files to merge
@@ -60,6 +64,8 @@ def merge_parquet(
     :param target_path: Where to save the merged data
     :param compression_algorithm: The compression algorithm to use
     :param compression_level: The compression level to use
+    :param keys: A list of keys to partition uniqueness checks on. Failure to supply this may result in a massive
+    memory spike
     """
     input_data: typing.Sequence[pathlib.Path] = find_input_paths(files_to_merge)
 
@@ -67,46 +73,73 @@ def merge_parquet(
         raise FileNotFoundError(
             f"No input data was found at the following paths - nothing may be merged: {files_to_merge}"
         )
-    if len(input_data) == 1:
-        raise ValueError(
+
+    if len(input_data) == 1 and not target_path.is_file():
+        raise NothingToMergeException(
             f"Only one input was found to merge ({input_data[0]}) at the following path - "
             f"two or more files are required when merging"
         )
+    elif len(input_data) == 1:
+        input_data = [target_path, *input_data]
 
-    import polars
+    if not keys:
+        LOGGER.warning(
+            f"No keys to partition on have been provided. "
+            f"Failure to supply this may result in a massive memory spike and an out of memory error"
+        )
 
-    polars_friendly_paths: typing.Sequence[str] = list(map(str, input_data))
+    import duckdb
 
-    LOGGER.info(f"{len(polars_friendly_paths)} Parquet files will be attempted to be merged")
+    files_to_merge = list(map(str, input_data))
 
-    gathered_data: polars.LazyFrame = polars.scan_parquet(source=polars_friendly_paths)
+    copy_options = [
+        "FORMAT PARQUET",
+        f"COMPRESSION {compression_algorithm.upper()}",
+        f"COMPRESSION_LEVEL {compression_level}",
+        "USE_TMP_FILE TRUE",
+        "OVERWRITE TRUE"
+    ]
 
-    if enforce_unique:
-        gathered_data = gathered_data.unique()
+    copy_script: str = f"COPY ("
 
-    target_path.parent.mkdir(parents=True, exist_ok=True)
+    if keys:
+        copy_script += f"""
+    SELECT *
+    FROM (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY {', '.join(keys)}) AS ROW_NUM
+        FROM read_parquet({files_to_merge}) AS parquet_data
+    ) AS counted_parquet
+    WHERE ROW_NUM = 1
+    ORDER BY {', '.join(keys)}   
+)"""
+    elif enforce_unique:
+        copy_script += f"""
+    SELECT DISTINCT *
+    FROM read_parquet({files_to_merge})
+)"""
+    else:
+        copy_script += f"""
+    SELECT *
+    FROM read_parquet({files_to_merge})
+)"""
+
+    copy_script += f" TO '{target_path}' ({', '.join(copy_options)})"
 
     try:
-        import tempfile
-        import shutil
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            staging_path: pathlib.Path = pathlib.Path(temporary_directory) / target_path.name
-            LOGGER.info(f"Now saving parquet data")
-            gathered_data.sink_parquet(
-                path=staging_path,
-                compression=compression_algorithm,
-                compression_level=compression_level,
+        LOGGER.info(f"Merging data into '{target_path}' - this may be time consuming")
+        duckdb.sql(copy_script)
+        LOGGER.info(f"Data from {files_to_merge} have been merged to '{target_path}'")
+    except:
+        if keys:
+            LOGGER.error(
+                f"Could not merge data from the following parquet files on the keys "
+                f"{', '.join(keys)}: {files_to_merge}",
+                exc_info=True
             )
-            shutil.move(staging_path, target_path)
-        LOGGER.info(f"{', '.join(polars_friendly_paths)} have been merged into {target_path}")
-    except Exception as e:
-        if enforce_unique:
-            message = f"Could not merge unique values from the following files: {', '.join(polars_friendly_paths)}. {e}"
         else:
-            message = f"Could not merge values from the following files: {', '.join(polars_friendly_paths)}. {e}"
-
-        LOGGER.error(message, exc_info=e)
-        raise e
+            LOGGER.error(f"Could not merge data from the following parquet files: {files_to_merge}", exc_info=True)
+        LOGGER.debug(f"Failing Script:{os.linesep}{copy_script}")
+        raise
 
 def get_parser() -> argparse.ArgumentParser:
     from pg2pq.command_arguments import MergeArgs

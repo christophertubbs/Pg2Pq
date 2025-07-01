@@ -79,3 +79,9 @@ class ApplicationArguments:
 
         arguments = selected_argument_type(**parsed_values)
         self.__arguments = arguments
+
+try:
+    from pg2pq.command_arguments import ToNetcdfArgs
+    ApplicationArguments.add_argument_type(ToNetcdfArgs.get_command(), ToNetcdfArgs)
+except ImportError:
+    pass

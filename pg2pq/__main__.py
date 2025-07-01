@@ -7,6 +7,7 @@ import typing
 import logging
 import sys
 
+from pg2pq.command_arguments import MergeArgs
 from pg2pq.utilities import common
 
 if __name__.endswith("__main__"):
@@ -51,6 +52,24 @@ def generate_env(arguments: GenerateEnvironmentArgs):
     env_generator.generate_env_file(output_path=arguments.output_path)
 
 
+def merge_data(arguments: MergeArgs):
+    """
+    Merge parquet data
+
+    :param arguments:
+    :return:
+    """
+    from pg2pq import merge
+    merge.merge_parquet(
+        files_to_merge=arguments.input_files,
+        enforce_unique=arguments.enforce_unique,
+        target_path=arguments.output_path,
+        compression_algorithm=arguments.compression_algorithm,
+        compression_level=arguments.compression_level,
+        keys=arguments.keys,
+    )
+
+
 def get_action_routing_table() -> typing.Mapping[str, typing.Callable[[ArgumentType], typing.Any]]:
     """
     Create a mapping of application commands to their handlers
@@ -61,6 +80,7 @@ def get_action_routing_table() -> typing.Mapping[str, typing.Callable[[ArgumentT
     table: typing.Dict[str, typing.Callable[[ArgumentType], typing.Any]] = {
         DatabaseDumpArguments.get_command(): dump_database_table,
         GenerateEnvironmentArgs.get_command(): generate_env,
+        MergeArgs.get_command(): merge_data,
     }
     return table
 
