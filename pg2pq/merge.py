@@ -104,11 +104,12 @@ def merge_parquet(
 
     if keys:
         copy_script += f"""
-    SELECT *
-    FROM (
+    WITH flagged_groups AS (
         SELECT *, ROW_NUMBER() OVER (PARTITION BY {', '.join(keys)}) AS ROW_NUM
         FROM read_parquet({files_to_merge}) AS parquet_data
-    ) AS counted_parquet
+    )
+    SELECT * EXCLUDE ROW_NUM
+    FROM flagged_rows
     WHERE ROW_NUM = 1
     ORDER BY {', '.join(keys)}   
 )"""

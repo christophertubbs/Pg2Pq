@@ -695,10 +695,12 @@ def ensure_data_is_unique(
     ])
     for key_set in keys:
         query: str = f"""COPY (
-    SELECT * FROM (
+    WITH flagged_rows AS (
         SELECT *, ROW_NUMBER() OVER (PARTITION BY {', '.join(key_set)}) AS ROW_NUM
         FROM read_parquet('{str(path)}')
-    ) AS UNIQUE_DATA
+    )
+    SELECT * EXCLUDE ROW_NUM
+    FROM flagged_rows
     WHERE ROW_NUM = 1
     ORDER BY {', '.join(key_set)}
 ) TO '{path}' ({parquet_options});"""
