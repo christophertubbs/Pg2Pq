@@ -66,6 +66,11 @@ _ENVIRONMENT_VARIABLES: typing.Sequence[ConfigurableVariable] = [
         default=settings.default_log_level,
         description="The logging level to use"
     ),
+    ConfigurableVariable(
+        name=f"{constants.PREFIX}_TIMEZONE",
+        default=settings.timezone,
+        description="The timezone to use when logging"
+    )
 ]
 
 
