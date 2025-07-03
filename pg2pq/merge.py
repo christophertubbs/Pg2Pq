@@ -8,6 +8,9 @@ import typing
 import logging
 import pathlib
 
+if typing.TYPE_CHECKING:
+    import pyarrow
+
 from pg2pq.exceptions import NothingToMergeException
 
 
@@ -53,7 +56,8 @@ def merge_parquet(
     target_path: pathlib.Path,
     compression_algorithm: str = "zstd",
     compression_level: int = 5,
-    keys: typing.Sequence[str] = None
+    keys: typing.Sequence[str] = None,
+    schema: "pyarrow.Schema" = None,
 ) -> None:
     """
     Combine all the paths in files_to_merge into a single file at the target path. One or more of the files to merge
@@ -66,6 +70,7 @@ def merge_parquet(
     :param compression_level: The compression level to use
     :param keys: A list of keys to partition uniqueness checks on. Failure to supply this may result in a massive
     memory spike
+    :param schema: An optional pyarrow schema that contains important metadata and type requirements
     """
     input_data: typing.Sequence[pathlib.Path] = find_input_paths(files_to_merge)
 
@@ -109,7 +114,7 @@ def merge_parquet(
         FROM read_parquet({files_to_merge}) AS parquet_data
     )
     SELECT * EXCLUDE ROW_NUM
-    FROM flagged_rows
+    FROM flagged_groups
     WHERE ROW_NUM = 1
     ORDER BY {', '.join(keys)}   
 )"""
@@ -141,6 +146,39 @@ def merge_parquet(
             LOGGER.error(f"Could not merge data from the following parquet files: {files_to_merge}", exc_info=True)
         LOGGER.debug(f"Failing Script:{os.linesep}{copy_script}")
         raise
+
+    if schema is not None:
+        import pyarrow
+        import pyarrow.parquet as parquet
+
+        if not isinstance(schema, pyarrow.Schema):
+            raise TypeError(f"Cannot use the given '{type(schema)}' as a schema for the data written at {target_path}")
+
+        try:
+            recently_written_data: pyarrow.Table = parquet.read_table(target_path)
+        except Exception as e:
+            LOGGER.error(f"Could not read the recently written merged parquet data: {e}", exc_info=True)
+            raise
+
+        try:
+            recently_written_data = recently_written_data.cast(schema)
+        except Exception as e:
+            LOGGER.error(
+                f"Could not apply the given schema to the recently written parquet data: {e}{os.linesep}"
+                f"Schema:{os.linesep}"
+                f"{schema}",
+                exc_info=True
+            )
+            raise
+
+        try:
+            parquet.write_table(recently_written_data, target_path)
+        except Exception as e:
+            LOGGER.error(
+                f"Could not write the recently written merged data back to disk with the correct schema: {e}",
+                exc_info=True
+            )
+            raise
 
 def get_parser() -> argparse.ArgumentParser:
     from pg2pq.command_arguments import MergeArgs

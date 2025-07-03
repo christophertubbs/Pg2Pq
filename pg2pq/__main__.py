@@ -70,6 +70,21 @@ def merge_data(arguments: MergeArgs):
     )
 
 
+try:
+    from pg2pq.command_arguments import ToNetcdfArgs
+
+    def convert_parquet_to_netcdf(arguments: ToNetcdfArgs):
+        from pg2pq import to_netcdf
+        to_netcdf.convert_to_netcdf(
+            source=arguments.target_parquet,
+            output_path=arguments.output_path,
+            dimensions=arguments.dimensions,
+            variables_to_exclude=arguments.exclude,
+        )
+except ImportError:
+    ToNetcdfArgs = None
+
+
 def get_action_routing_table() -> typing.Mapping[str, typing.Callable[[ArgumentType], typing.Any]]:
     """
     Create a mapping of application commands to their handlers
@@ -82,6 +97,10 @@ def get_action_routing_table() -> typing.Mapping[str, typing.Callable[[ArgumentT
         GenerateEnvironmentArgs.get_command(): generate_env,
         MergeArgs.get_command(): merge_data,
     }
+
+    if ToNetcdfArgs is not None:
+        table[ToNetcdfArgs.get_command()] = convert_parquet_to_netcdf
+
     return table
 
 def main() -> int:

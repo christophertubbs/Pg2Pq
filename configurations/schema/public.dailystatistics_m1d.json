@@ -1,0 +1,206 @@
+{
+    "fields": [
+        {
+            "name": "location_id",
+            "datatype": "int64",
+            "metadata": {
+                "long_name": "National Water Model Feature ID",
+                "standard_name": "station_id",
+                "description": "NWM Feature/COM ID Representing a unique reach"
+            }
+        },
+        {
+            "name": "month_nu",
+            "datatype": "uint8",
+            "metadata": {
+                "long_name": "Month",
+                "description": "Numeric Month of the Year (1-12) for inputs"
+            }
+        },
+        {
+            "name": "day_nu",
+            "datatype": "uint8",
+            "metadata": {
+                "long_name": "Day",
+                "description": "Numeric Day of the Month (1-31) for inputs"
+            }
+        },
+        {
+            "name": "count_nu",
+            "datatype": "uint16",
+            "metadata": {
+                "long_name": "Sample Size",
+                "description": "The number of daily values observed over 40 years for the location/month/day",
+                "units": "1"
+            }
+        },
+        {
+            "name": "earliest",
+            "datatype": "datetime",
+            "metadata": {
+                "long_name": "Earliest Valid Date",
+                "description": "Date and Time of earliest value"
+            }
+        },
+        {
+            "name": "latest",
+            "datatype": "datetime",
+            "metadata": {
+                "long_name": "Latest Valid Date",
+                "description": "Date and Time of the latest value on this day"
+            }
+        },
+        {
+            "name": "max",
+            "datatype": "float32",
+            "metadata": {
+                "long_name": "The maximum simulated value on this month and day at this location over 40 years",
+                "description": "The maximum value from the retrospective on this day",
+                "cell_methods": "time: mean (interval: 1 days) time: maximum",
+                "unit": "m3 s-1",
+                "aggregation_interval": "P1D",
+                "source_frequency": "hourly",
+                "aggregation_method": "mean"
+            }
+        },
+        {
+            "name": "mean",
+            "datatype": "float32",
+            "metadata": {
+                "long_name": "Mean",
+                "description": "Average simulated value on this month and day at this location over 40 years",
+                "cell_methods": "time: mean (interval: 1 days) time: mean",
+                "unit": "m3 s-1",
+                "aggregation_interval": "P1D",
+                "source_frequency": "hourly",
+                "aggregation_method": "mean"
+            }
+        },
+        {
+            "name": "min",
+            "datatype": "float32",
+            "metadata": {
+                "long_name": "Minimum",
+                "description": "The minimum simulated value on this month and day at this location over 40 years",
+                "cell_methods": "time: mean (interval: 1 days) time: minimum",
+                "unit": "m3 s-1",
+                "aggregation_interval": "P1D",
+                "source_frequency": "hourly",
+                "aggregation_method": "mean"
+            }
+        },
+        {
+            "name": "p05",
+            "datatype": "float32",
+            "metadata": {
+                "long_name": "5th Percentile",
+                "description": "The value for this day at this location that is greater than the lowest 5%; shows low end variability",
+                "cell_methods": "time: mean (interval: 1 days) time: percentile(5)",
+                "unit": "m3 s-1",
+                "aggregation_interval": "P1D",
+                "source_frequency": "hourly",
+                "aggregation_method": "mean"
+            }
+        },
+        {
+            "name": "p10",
+            "datatype": "float32",
+            "metadata": {
+                "long_name": "10th Percentile",
+                "description": "The value for this day at this location that is greater than the lowest 10%; indicates lower bound behavior",
+                "cell_methods": "time: mean (interval: 1 days) time: percentile(10)",
+                "unit": "m3 s-1",
+                "aggregation_interval": "P1D",
+                "source_frequency": "hourly",
+                "aggregation_method": "mean"
+            }
+        },
+        {
+            "name": "p25",
+            "datatype": "float32",
+            "metadata": {
+                "long_name": "25th Percentile",
+                "description": "First Quartile; highlights lower-range typical values",
+                "cell_methods": "time: mean (interval: 1 days) time: percentile(25)",
+                "unit": "m3 s-1",
+                "aggregation_interval": "P1D",
+                "source_frequency": "hourly",
+                "aggregation_method": "mean"
+            }
+        },
+        {
+            "name": "p50",
+            "datatype": "float32",
+            "metadata": {
+                "long_name": "Median",
+                "description": "Middle value of historical daily values; typical central tendency",
+                "cell_methods": "time: mean (interval: 1 days) time: percentile(50)",
+                "unit": "m3 s-1",
+                "aggregation_interval": "P1D",
+                "source_frequency": "hourly",
+                "aggregation_method": "mean"
+            }
+        },
+        {
+            "name": "p75",
+            "datatype": "float32",
+            "metadata": {
+                "long_name": "75th Percentile",
+                "description": "Third Quartile; shows typical upper-bound values",
+                "cell_methods": "time: mean (interval: 1 days) time: percentile(75)",
+                "unit": "m3 s-1",
+                "aggregation_interval": "P1D",
+                "source_frequency": "hourly",
+                "aggregation_method": "mean"
+            }
+        },
+        {
+            "name": "p90",
+            "datatype": "float32",
+            "metadata": {
+                "long_name": "90th Percentile",
+                "description": "Value above which only 10% of values fall; high-end behavior marker",
+                "cell_methods": "time: mean (interval: 1 days) time: percentile(90)",
+                "unit": "m3 s-1",
+                "aggregation_interval": "P1D",
+                "source_frequency": "hourly",
+                "aggregation_method": "mean"
+            }
+        },
+        {
+            "name": "p95",
+            "datatype": "float32",
+            "metadata": {
+                "long_name": "95th Percentile",
+                "description": "Extreme high end daily values; highlights rare but large events",
+                "cell_methods": "time: mean (interval: 1 days) time: percentile(95)",
+                "unit": "m3 s-1",
+                "aggregation_interval": "P1D",
+                "source_frequency": "hourly",
+                "aggregation_method": "mean"
+            }
+        },
+        {
+            "name": "std",
+            "datatype": "float32",
+            "metadata": {
+                "long_name": "Standard Deviation",
+                "description": "Variation of values for this day, month, and location over 40 years",
+                "cell_methods": "time: mean (interval: 1 days) time: standard_deviation",
+                "unit": "m3 s-1",
+                "aggregation_interval": "P1D",
+                "source_frequency": "hourly",
+                "aggregation_method": "mean"
+            }
+        }
+    ],
+    "metadata": {
+        "title": "Daily Statistics based on the NWM 3.0 retrospective dataset",
+        "input_grouping": "Grouped by location, month, and day, calculated on each daily mean",
+        "source": "NOAA National Water Model v3.0 Retrospective Simulation,",
+        "Conventions": "CF-1.8,",
+        "featureType": "timeSeries",
+        "institution": "NOAA Office of Water Prediction",
+        "nwm_version": "3.0"
+    }
+}

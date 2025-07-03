@@ -21,7 +21,8 @@ setup(
         "dotenv",
         "asyncpg",
         "duckdb",
-        "tzlocal"
+        "tzlocal",
+        "tqdm"
     ],
     extras_require={
         "netcdf": ["netCDF4", "xarray"],

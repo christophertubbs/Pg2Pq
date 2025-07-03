@@ -13,7 +13,9 @@ from pg2pq.command_arguments import GenerateEnvironmentArgs
 from pg2pq.command_arguments import MergeArgs
 from pg2pq.command_arguments import DatabaseDumpArguments
 from pg2pq.command_arguments import ArgumentType
+from pg2pq.command_arguments import AlterSourceArguments
 
+@register_argument(AlterSourceArguments)
 @register_argument(DatabaseDumpArguments)
 @register_argument(GenerateEnvironmentArgs)
 @register_argument(MergeArgs)

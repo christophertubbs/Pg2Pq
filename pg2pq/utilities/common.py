@@ -43,7 +43,15 @@ class TimeZoneFormatter(logging.Formatter):
         if datefmt:
             return converted_datetime.strftime(datefmt)
 
-        return converted_datetime.strftime(constants.DATE_FORMAT)
+        return converted_datetime.strftime(constants.PRECISE_DATE_FORMAT)
+
+
+def now() -> datetime:
+    """
+    Get the current time with the intended timezone
+    """
+    from pg2pq.utilities import settings
+    return datetime.now(tz=zoneinfo.ZoneInfo(settings.timezone))
 
 
 def create_exception_group(

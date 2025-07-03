@@ -14,13 +14,14 @@ import atexit
 from threading import Event
 from queue import Queue
 
-import psycopg
-import sqlalchemy
-import pyarrow
+if typing.TYPE_CHECKING:
+    import psycopg
+    import sqlalchemy
+    import pyarrow
 
-import pyarrow.parquet
+    import pyarrow.parquet
 
-from psycopg.sql import Composed as PostgresQuery
+    from psycopg.sql import Composed as PostgresQuery
 
 from pg2pq.models import DatabaseSpecification
 from pg2pq.utilities import settings, ConflictResolution
@@ -30,7 +31,7 @@ from pg2pq.utilities.constants import APPLICATION_NAME
 
 LOGGER: logging.Logger = logging.getLogger(pathlib.Path(__file__).stem)
 
-WRITERS: weakref.WeakValueDictionary[pathlib.Path, pyarrow.parquet.ParquetWriter] = weakref.WeakValueDictionary()
+WRITERS: weakref.WeakValueDictionary[pathlib.Path, "pyarrow.parquet.ParquetWriter"] = weakref.WeakValueDictionary()
 """A mapping of open parquet writers. A reference from this dictionary won't keep the writer open and in memory"""
 NOTIFICATION_FREQUENCY: int = 150
 """The number of queries to buffer in before sending some sort of notification to the user and logs"""
@@ -53,6 +54,7 @@ def close_writers(signum = None, frame = None):
     :param signum:
     :param frame:
     """
+    import pyarrow.parquet
     for path, writer in WRITERS.items():
         if isinstance(writer, pyarrow.parquet.ParquetWriter) and writer.is_open:
             try:
@@ -68,10 +70,10 @@ atexit.register(close_writers)
 
 def get_parquet_writer(
     target: pathlib.Path,
-    schema: pyarrow.Schema,
+    schema: "pyarrow.Schema",
     compression_algorithm: str = COMPRESSION_ALGORITHM,
     compression_level: int = COMPRESSION_LEVEL
-) -> pyarrow.parquet.ParquetWriter:
+) -> "pyarrow.parquet.ParquetWriter":
     """
     Get a writer for a parquet file.
 
@@ -83,6 +85,7 @@ def get_parquet_writer(
     :param compression_level: To what degree to compress the data
     :return: A writer that will apply parquet data to disk
     """
+    import pyarrow.parquet
     # Properly close a previously existing writer if it is found
     if target in WRITERS:
         previous_writer: pyarrow.parquet.ParquetWriter = WRITERS.pop(target)
@@ -107,14 +110,16 @@ def get_parquet_writer(
     return writer
 
 
-def map_postgresql_type_to_arrow(dtype: sqlalchemy.types.TypeEngine) -> pyarrow.types.lib.DataType:
+def map_postgresql_type_to_arrow(dtype: "sqlalchemy.types.TypeEngine") -> "pyarrow.types.lib.DataType":
     """
     Determine the appropriate pyarrow data type for the given sqlalchemy type
 
     :param dtype: The type of column from sqlalchemy
     :return: An appropriate pyarrow data type that may be used to reflect the sqlalchemy type
     """
+    import sqlalchemy
     from sqlalchemy.dialects import postgresql
+    import pyarrow
     if isinstance(dtype, (postgresql.BOOLEAN, postgresql.BIT)):
         return pyarrow.bool_()
 
@@ -164,7 +169,7 @@ def map_postgresql_type_to_arrow(dtype: sqlalchemy.types.TypeEngine) -> pyarrow.
 
 
 def get_unique_table_keys(
-    table: sqlalchemy.Table
+    table: "sqlalchemy.Table"
 ) -> typing.Sequence[typing.Sequence[str]]:
     """
     Get all keys that describe uniqueness for the given table
@@ -172,6 +177,7 @@ def get_unique_table_keys(
     :param table: The table whose keys we want to find
     :return: A collection of a series of column names that should be considered unique
     """
+    import sqlalchemy
     unique_column_constraints: typing.Union[typing.Iterable, typing.Iterator] = filter(
         lambda constraint: isinstance(constraint, sqlalchemy.schema.ColumnCollectionConstraint),
         table.constraints
@@ -183,13 +189,26 @@ def get_unique_table_keys(
     ]
     return key_sets
 
-def get_table_schema(table: sqlalchemy.Table) -> pyarrow.Schema:
+def get_table_schema(table: "sqlalchemy.Table") -> "pyarrow.Schema":
     """
     Create a schema for future parquet files based on sqlalchemy table metadata
 
     :param table: The table whose schema needs to be reflected
     :return: A pyarrow table schema that should accurately reflect the schema of the database table
     """
+    import pyarrow
+    import sqlalchemy
+    from pg2pq.utilities import constants
+
+    configuration_path: pathlib.Path = constants.SCHEMA_DIRECTORY / f"{table.schema or 'public'}.{table.name}.json"
+
+    if configuration_path.is_file():
+        LOGGER.info(f"Found a configuration for {table.schema}.{table.name}'s schema at {configuration_path}")
+        from pg2pq.models import ParquetSchema
+        configured_schema: ParquetSchema = ParquetSchema.read_file(path=configuration_path)
+        schema: pyarrow.Schema = configured_schema.to_schema()
+        return schema
+
     schema_columns: typing.List[typing.Tuple[str, pyarrow.types.lib.DataType]] = []
 
     for column_name, column in table.columns.items():  # type: str, sqlalchemy.Column
@@ -201,7 +220,7 @@ def get_table_schema(table: sqlalchemy.Table) -> pyarrow.Schema:
     return schema
 
 
-def log_schema(schema: pyarrow.Schema):
+def log_schema(schema: "pyarrow.Schema"):
     """
     Output the pyarrow schema to the logs for later investigation
 
@@ -223,7 +242,7 @@ def form_data_retrieval_query(
     table_name: str,
     longest_key: typing.Optional[typing.Sequence[str]],
     preexisting_values: typing.Optional[typing.Mapping[str, typing.Any]]
-) -> PostgresQuery:
+) -> "PostgresQuery":
     """
     Create a specially formatted postgresql query that will retrieve data from the database
 
@@ -254,7 +273,7 @@ def form_data_retrieval_query(
     return query
 
 def stream_batches(
-    connection: psycopg.Connection,
+    connection: "psycopg.Connection",
     schema_name: str,
     table_name: str,
     buffer_size: int,
@@ -263,7 +282,7 @@ def stream_batches(
     previous_values: typing.Dict[str, typing.Any] = None,
 ) -> typing.Generator[typing.Sequence[typing.Dict[str, typing.Any]], None, None]:
     """
-    Create a generator that will pull in a limited amount of data from a postres table
+    Create a generator that will pull in a limited amount of data from a postgres table
 
     :param connection: An open connection to a postgres database
     :param schema_name: The schema that contains the table of itnerest
@@ -319,7 +338,7 @@ def stream_batches(
             batch: typing.Sequence[typing.Dict[str, typing.Any]] = cursor.fetchmany(buffer_size)
 
 
-def get_unqualified_host(url: typing.Union[str, sqlalchemy.engine.url.URL]) -> str:
+def get_unqualified_host(url: typing.Union[str, "sqlalchemy.engine.url.URL"]) -> str:
     """
     Get the name of the host for identification purposes
 
@@ -334,6 +353,7 @@ def get_unqualified_host(url: typing.Union[str, sqlalchemy.engine.url.URL]) -> s
     :param url: The url whose host to extract
     :return: The name of the host
     """
+    import sqlalchemy
     if isinstance(url, sqlalchemy.engine.url.URL):
         return url.host
 
@@ -411,6 +431,8 @@ def merge_checkpoints(
     may_continue: Event,
     compression_algorithm: str,
     compression_level: int,
+    keys: typing.Sequence[str] = None,
+    schema: "pyarrow.Schema" = None,
     timeout: int = 2,
     backoff: int = 2
 ) -> None:
@@ -422,6 +444,8 @@ def merge_checkpoints(
     :param may_continue: An event that states that this function may continue polling if set
     :param compression_algorithm: How to compress the merged data
     :param compression_level: To what degree to compress the data
+    :param keys: A combination of column names used to indicate unique rows
+    :param schema: A pyarrow schema that describes the correct expected types and file and column metadata
     :param timeout: The number of seconds to wait for a new file to merge before timing out. Setting the value too
     high will keep the application from exiting in a timely fashion.
     :param backoff: The amount of time to wait if an error was encountered before trying again
@@ -463,6 +487,8 @@ def merge_checkpoints(
                     target_path=main_path,
                     compression_algorithm=compression_algorithm,
                     compression_level=compression_level,
+                    keys=keys,
+                    schema=schema
                 )
 
                 for path in similar_paths:
@@ -499,6 +525,8 @@ def merge_checkpoints(
                 target_path=main_path,
                 compression_algorithm=compression_algorithm,
                 compression_level=compression_level,
+                keys=keys,
+                schema=schema
             )
         else:
             import shutil
@@ -520,7 +548,7 @@ def dump_table(
     buffer_size: int = settings.buffer_size,
     conflict_resolution: ConflictResolution = ConflictResolution.ERROR,
     compression_algorithm: str = COMPRESSION_ALGORITHM,
-    compression_level: int = COMPRESSION_LEVEL,
+    compression_level: int = COMPRESSION_LEVEL
 ) -> None:
     """
     Dump a postgresql table to a parquet file
@@ -535,6 +563,7 @@ def dump_table(
     :param compression_level: How intensely to compress resultant parquet data. ~5 is a good choice, diminishing returns after ~7
     """
     import psycopg
+    import pyarrow
     from pyarrow import parquet
     import shutil
 
@@ -572,6 +601,7 @@ def dump_table(
         raise KeyError(f"No table named '{schema_name}.{table_name}' could be found in {specification}")
 
     schema: pyarrow.Schema = get_table_schema(table=table_data)
+        
     keys: typing.Sequence[typing.Sequence[str]] = get_unique_table_keys(table=table_data)
 
     if keys:
@@ -599,7 +629,7 @@ def dump_table(
         if COMPRESSION_LEVEL >= 9:
             LOGGER.warning(f"The compression level is set at {COMPRESSION_LEVEL}. Writing may be very slow")
 
-        writer: pyarrow.parquet.ParquetWriter = get_parquet_writer(
+        writer: parquet.ParquetWriter = get_parquet_writer(
             target=working_path,
             schema=schema,
             compression_algorithm=COMPRESSION_ALGORITHM,
@@ -630,6 +660,8 @@ def dump_table(
                     "may_continue": may_continue,
                     "compression_algorithm": compression_algorithm,
                     "compression_level": compression_level,
+                    "keys": longest_key,
+                    "schema": schema,
                 }
             )
             merge_thread.start()
@@ -723,6 +755,8 @@ def combine_checkpoints(
     query: str = f"""COPY (
     SELECT * FROM read_parquet('{checkpoint_glob}')    
 ) TO '{working_path}' ({copy_options});"""
+    import duckdb
+    duckdb.sql(query)
 
 def post_process_dumped_data(
     working_path: pathlib.Path,

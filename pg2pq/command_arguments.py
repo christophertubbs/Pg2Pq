@@ -366,6 +366,41 @@ class DatabaseDumpArguments(ArgumentsForDatabase):
     )
 
 @dataclasses.dataclass
+class AlterSourceArguments(ArgumentsForDatabase):
+    """
+    Alter details about the source table
+    """
+    @classmethod
+    def get_command(cls) -> str:
+        return "alter-source"
+
+    schema_name: str = dataclasses.field(
+        metadata={
+            "description": "The name of the schema that contains the table"
+        }
+    )
+
+    table_name: str = dataclasses.field(
+        metadata={
+            "description": "The name of the table to alter"
+        }
+    )
+
+    new_type: str = dataclasses.field(
+        metadata={
+            "description": "The name of the new type for the column"
+        }
+    )
+
+    column_names: typing.List[str] = dataclasses.field(
+        metadata={
+            "description": "The names of the columns to update",
+            "nargs": "+"
+        }
+    )
+
+
+@dataclasses.dataclass
 class GenerateEnvironmentArgs(BaseArguments):
     """
     Generate environment variables
@@ -458,54 +493,49 @@ class MergeArgs(BaseArguments):
     )
 
 
-try:
-    import xarray
+@dataclasses.dataclass
+class ToNetcdfArgs(BaseArguments):
+    """
+    Arguments that instruct the system to convert parquet data into netcdf
+    """
+    @classmethod
+    def get_command(cls) -> str:
+        return "to-netcdf"
 
-    @dataclasses.dataclass
-    class ToNetcdfArgs(BaseArguments):
-        """
-        Arguments that instruct the system to convert parquet data into netcdf
-        """
-        @classmethod
-        def get_command(cls) -> str:
-            return "to-netcdf"
+    dimensions: typing.List[str] = dataclasses.field(
+        metadata={
+            "nargs": "+",
+            "type": str,
+            "description": "What columns to use as dimensions"
+        }
+    )
 
-        dimensions: typing.List[str] = dataclasses.field(
-            metadata={
-                "nargs": "+",
-                "type": str,
-                "description": "What columns to use as dimensions"
-            }
-        )
+    target_parquet: pathlib.Path = dataclasses.field(
+        metadata={
+            "type": pathlib.Path,
+            "description": "The path to the parquet file to convert"
+        }
+    )
 
-        target_parquet: pathlib.Path = dataclasses.field(
-            metadata={
-                "type": pathlib.Path,
-                "description": "The path to the parquet file to convert"
-            }
-        )
+    output_path: pathlib.Path = dataclasses.field(
+        metadata={
+            "type": pathlib.Path,
+            "description": "Where to save the resultant netcdf data"
+        }
+    )
 
-        output_path: pathlib.Path = dataclasses.field(
-            metadata={
-                "type": pathlib.Path,
-                "description": "Where to save the resultant netcdf data"
-            }
-        )
-
-        exclude: typing.List[str] = dataclasses.field(
-            default_factory=list,
-            metadata={
-                "flags": [
-                    "-e",
-                    "--exclude"
-                ],
-                "type": str,
-                "nargs": "*",
-                "description": "Columns to ignore when converting to netcdf"
-            }
-        )
-except ImportError:
-    xarray = {}
+    exclude: typing.List[str] = dataclasses.field(
+        default_factory=list,
+        metadata={
+            "flags": [
+                "-e",
+                "--exclude"
+            ],
+            "type": str,
+            "nargs": "*",
+            "description": "Columns to ignore when converting to netcdf"
+        }
+    )
 
 def register_argument(argument_class: typing.Type[BaseArguments], command: typing.Optional[str] = None):
     """

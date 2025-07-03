@@ -38,6 +38,9 @@ LOG_PATH: pathlib.Path = ROOT_DIRECTORY / f"{APPLICATION_NAME}.log"
 CONFIGURATION_DIRECTORY: pathlib.Path = ROOT_DIRECTORY / "configurations"
 """The path to general configurations"""
 
+SCHEMA_DIRECTORY: pathlib.Path = CONFIGURATION_DIRECTORY / "schema"
+"""Where to place parquet schema configurations"""
+
 LOG_CONFIGURATION_PATH: pathlib.Path = CONFIGURATION_DIRECTORY / "logging.json"
 """The path to the logging config"""
 
